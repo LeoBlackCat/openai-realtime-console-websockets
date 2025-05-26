@@ -37,17 +37,19 @@ interface RealtimeEvent {
 
 export function ConsolePage() {
   /**
-   * Ask user for API Key
-   * If we're using the local relay server, we don't need this
+   * Ask user for API Keys
+   * If we're using the local relay server, we don't need OpenAI key
    */
-  const apiKey = LOCAL_RELAY_SERVER_URL
+  const openAIKey = LOCAL_RELAY_SERVER_URL
     ? ''
-    : localStorage.getItem('tmp::voice_api_key') ||
+    : localStorage.getItem('tmp::openai_api_key') ||
       prompt('OpenAI API Key') ||
       '';
-  if (apiKey !== '') {
-    localStorage.setItem('tmp::voice_api_key', apiKey);
+  if (openAIKey !== '') {
+    localStorage.setItem('tmp::openai_api_key', openAIKey);
   }
+
+  const azureSpeechKey = localStorage.getItem('tmp::azure_speech_key') || '';
 
   /**
    * Instantiate:
@@ -56,7 +58,7 @@ export function ConsolePage() {
    * - RealtimeClient (API client)
    */
   const wavRecorderRef = useRef<WavRecorder>(
-    new WavRecorder({ sampleRate: 24000 })
+    new WavRecorder({ sampleRate: 24000, debug: true })
   );
   const wavStreamPlayerRef = useRef<WavStreamPlayer>(
     new WavStreamPlayer({ sampleRate: 24000 })
@@ -66,7 +68,7 @@ export function ConsolePage() {
       LOCAL_RELAY_SERVER_URL
         ? { url: LOCAL_RELAY_SERVER_URL }
         : {
-            apiKey: apiKey,
+            apiKey: openAIKey,
             dangerouslyAllowAPIKeyInBrowser: true,
           }
     )
@@ -97,8 +99,8 @@ export function ConsolePage() {
   const [isConnected, setIsConnected] = useState(false);
   const [canPushToTalk, setCanPushToTalk] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [showAudio, setShowAudio] = useState(false);
-  const [showConsole, setShowConsole] = useState(false);
+  const [showAudio, setShowAudio] = useState(true);
+  const [showConsole, setShowConsole] = useState(true);
 
   /**
    * Utility for formatting the timing of logs
@@ -122,13 +124,20 @@ export function ConsolePage() {
   }, []);
 
   /**
-   * When you click the API key
+   * When you click the API keys
    */
-  const resetAPIKey = useCallback(() => {
-    const apiKey = prompt('OpenAI API Key');
-    if (apiKey !== null) {
-      localStorage.clear();
-      localStorage.setItem('tmp::voice_api_key', apiKey);
+  const resetOpenAIKey = useCallback(() => {
+    const key = prompt('OpenAI API Key');
+    if (key !== null) {
+      localStorage.setItem('tmp::openai_api_key', key);
+      window.location.reload();
+    }
+  }, []);
+
+  const resetAzureSpeechKey = useCallback(() => {
+    const key = prompt('Azure Speech API Key');
+    if (key !== null) {
+      localStorage.setItem('tmp::azure_speech_key', key);
       window.location.reload();
     }
   }, []);
@@ -413,10 +422,17 @@ export function ConsolePage() {
               icon={Edit}
               iconPosition="end"
               buttonStyle="flush"
-              label={`api key: ${apiKey.slice(0, 3)}...`}
-              onClick={() => resetAPIKey()}
+              label={`OpenAI key: ${openAIKey.slice(0, 3)}...`}
+              onClick={() => resetOpenAIKey()}
             />
           )}
+          <Button
+            icon={Edit}
+            iconPosition="end"
+            buttonStyle="flush"
+            label={`Azure Speech key: ${azureSpeechKey ? azureSpeechKey.slice(0, 3) + '...' : 'not set'}`}
+            onClick={() => resetAzureSpeechKey()}
+          />
         </div>
       </div>
       <div className="content-main">
@@ -451,7 +467,6 @@ export function ConsolePage() {
                         <div
                           className="event-summary"
                           onClick={() => {
-                            // toggle event details
                             const id = event.event_id;
                             const expanded = { ...expandedEvents };
                             if (expanded[id]) {
