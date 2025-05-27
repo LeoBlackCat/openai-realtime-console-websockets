@@ -107,8 +107,8 @@ export function ConsolePage() {
   const [isConnected, setIsConnected] = useState(false);
   const [canPushToTalk, setCanPushToTalk] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [showAudio, setShowAudio] = useState(true);
-  const [showConsole, setShowConsole] = useState(true);
+  const [showAudio, setShowAudio] = useState(false);
+  const [showConsole, setShowConsole] = useState(false);
   const [pronunciationScores, setPronunciationScores] = useState<{[key: string]: PronunciationScores}>({});
   const recognizerRef = useRef<SpeechSDK.SpeechRecognizer | null>(null);
 
@@ -334,14 +334,15 @@ export function ConsolePage() {
    * Auto-scroll the conversation logs
    */
   useEffect(() => {
-    const conversationEls = [].slice.call(
-      document.body.querySelectorAll('[data-conversation-content]')
-    );
-    for (const el of conversationEls) {
+    const conversationEls = document.querySelectorAll('[data-conversation-content]');
+    conversationEls.forEach((el) => {
       const conversationEl = el as HTMLDivElement;
-      conversationEl.scrollTop = conversationEl.scrollHeight;
-    }
-  }, [items]);
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        conversationEl.scrollTop = conversationEl.scrollHeight;
+      });
+    });
+  }, [items, pronunciationScores]);
 
   /**
    * Set up render loops for the visualization canvas
@@ -425,7 +426,7 @@ export function ConsolePage() {
     // Set instructions
     client.updateSession({ instructions: instructions });
     // Set transcription, otherwise we don't get user transcriptions back
-    client.updateSession({ input_audio_transcription: { model: 'whisper-1' } });
+    //client.updateSession({ input_audio_transcription: { model: 'whisper-1' } });
     // Set turn detection to server VAD by default
     client.updateSession({ turn_detection: { type: 'server_vad' } });
 
@@ -475,8 +476,10 @@ export function ConsolePage() {
           const pronunciationAssessmentConfig = new SpeechSDK.PronunciationAssessmentConfig(
             "", // Empty reference text for free-form speech
             SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
-            SpeechSDK.PronunciationAssessmentGranularity.Word
+            SpeechSDK.PronunciationAssessmentGranularity.Phoneme
           );
+          pronunciationAssessmentConfig.phonemeAlphabet = "IPA";
+          pronunciationAssessmentConfig.nbestPhonemeCount = 3;
           pronunciationAssessmentConfig.applyTo(recognizerRef.current);
       
           recognizerRef.current.recognizeOnceAsync(
@@ -484,7 +487,33 @@ export function ConsolePage() {
               if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
                 // Get pronunciation assessment results
                 const pronunciationAssessmentResult = SpeechSDK.PronunciationAssessmentResult.fromResult(result);
-                
+                //item.formatted.transcript = (pronunciationAssessmentResult as any).privPronJson.Display;
+                item.formatted.transcript = '';
+                for (const word of pronunciationAssessmentResult.detailResult.Words) {
+                  const accuracyScore = word.PronunciationAssessment!.AccuracyScore;
+                  let accuracyClass = 'needs-improvement';
+                  if (accuracyScore > 80) {
+                    accuracyClass = 'excellent';
+                  } else if (accuracyScore > 50) {
+                    accuracyClass = 'good';
+                  }
+                  item.formatted.transcript += ` <span class="pronunciation-word ${accuracyClass}">${word.Word}</span>`;
+                }
+                item.formatted.transcript += ' (';
+                for (const word of pronunciationAssessmentResult.detailResult.Words) {
+                  for (const phoneme of word.Phonemes) {
+                    const accuracyScore = (phoneme.PronunciationAssessment as any).AccuracyScore;
+                    let accuracyClass = 'needs-improvement';
+                    if (accuracyScore > 80) {
+                      accuracyClass = 'excellent';
+                    } else if (accuracyScore > 50) {
+                      accuracyClass = 'good';
+                    }
+                    item.formatted.transcript += `<span class="pronunciation-word ${accuracyClass}">${phoneme.Phoneme}</span>`;
+                  }
+                  item.formatted.transcript += ' ';
+                }
+                item.formatted.transcript += ')';
                 try {
                   const scores = pronunciationAssessmentResult.detailResult.PronunciationAssessment;
                   const newScores: PronunciationScores = {
@@ -500,6 +529,7 @@ export function ConsolePage() {
                 } catch (error) {
                   console.error('Error getting pronunciation scores:', error);
                 }
+                setItems(items);
               }
               
               recognizerRef.current?.close();
@@ -531,8 +561,17 @@ export function ConsolePage() {
     <div data-component="ConsolePage">
       <div className="content-top">
         <div className="content-title">
-          <img src="/openai-logomark.svg" />
-          <span>realtime console</span>
+          <img src="/openai-logomark.svg" alt="OpenAI" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/f/fa/Microsoft_Azure.svg" alt="Azure" style={{ width: '24px', height: '24px' }} />
+          <span>realtime && speech</span>
+          <div className="visualization">
+            <div className="visualization-entry client">
+              <canvas ref={clientCanvasRef} />
+            </div>
+            <div className="visualization-entry server">
+              <canvas ref={serverCanvasRef} />
+            </div>
+          </div>
         </div>
         <div className="content-api-key">
           {!LOCAL_RELAY_SERVER_URL && (
@@ -667,13 +706,11 @@ export function ConsolePage() {
                       )}
                       {!conversationItem.formatted.tool &&
                         conversationItem.role === 'user' && (
-                          <div>
-                            {conversationItem.formatted.transcript ||
-                              (conversationItem.formatted.audio?.length
-                                ? '(awaiting transcript)'
-                                : conversationItem.formatted.text ||
-                                  '(item sent)')}
-                          </div>
+                          <div dangerouslySetInnerHTML={{ __html: conversationItem.formatted.transcript || 
+                            (conversationItem.formatted.audio?.length
+                              ? '(awaiting transcript)'
+                              : conversationItem.formatted.text ||
+                                '(item sent)') }} />
                         )}
                       {!conversationItem.formatted.tool &&
                         conversationItem.role === 'assistant' && (
