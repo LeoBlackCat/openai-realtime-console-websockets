@@ -12,6 +12,7 @@ const LOCAL_RELAY_SERVER_URL: string =
   process.env.REACT_APP_LOCAL_RELAY_SERVER_URL || '';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
 
 import { RealtimeClient } from '@openai/realtime-api-beta';
 import { ItemType } from '@openai/realtime-api-beta/dist/lib/client.js';
@@ -33,6 +34,13 @@ interface RealtimeEvent {
   source: 'client' | 'server';
   count?: number;
   event: { [key: string]: any };
+}
+
+interface PronunciationScores {
+  accuracyScore: number | null;
+  fluencyScore: number | null;
+  completenessScore: number | null;
+  pronunciationScore: number | null;
 }
 
 export function ConsolePage() {
@@ -101,6 +109,8 @@ export function ConsolePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [showAudio, setShowAudio] = useState(true);
   const [showConsole, setShowConsole] = useState(true);
+  const [pronunciationScores, setPronunciationScores] = useState<{[key: string]: PronunciationScores}>({});
+  const recognizerRef = useRef<SpeechSDK.SpeechRecognizer | null>(null);
 
   /**
    * Utility for formatting the timing of logs
@@ -140,6 +150,62 @@ export function ConsolePage() {
       localStorage.setItem('tmp::azure_speech_key', key);
       window.location.reload();
     }
+  }, []);
+
+  const connectAzureSpeech = useCallback(() => {
+    const subscriptionKey = localStorage.getItem('tmp::azure_speech_key') || '';
+    const serviceRegion = 'eastus'; // or your preferred region
+
+    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(subscriptionKey, serviceRegion);
+    speechConfig.speechRecognitionLanguage = "en-US";
+    
+    // Enable pronunciation assessment
+    speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, "5000");
+    speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "1000");
+    
+    const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+    recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+
+    // Create pronunciation assessment config
+    const pronunciationAssessmentConfig = new SpeechSDK.PronunciationAssessmentConfig(
+      "", // Empty reference text for free-form speech
+      SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
+      SpeechSDK.PronunciationAssessmentGranularity.Word
+    );
+    pronunciationAssessmentConfig.applyTo(recognizerRef.current);
+
+    recognizerRef.current.recognizeOnceAsync(
+      (result) => {
+        if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+          // Get pronunciation assessment results
+          const pronunciationAssessmentResult = SpeechSDK.PronunciationAssessmentResult.fromResult(result);
+          
+          try {
+            const scores = pronunciationAssessmentResult.detailResult.PronunciationAssessment;
+            const newScores: PronunciationScores = {
+              accuracyScore: scores?.AccuracyScore || null,
+              fluencyScore: scores?.FluencyScore || null,
+              completenessScore: scores?.CompletenessScore || null,
+              pronunciationScore: scores?.PronScore || null
+            };
+            setPronunciationScores(prev => ({
+              ...prev,
+              [Date.now().toString()]: newScores
+            }));
+          } catch (error) {
+            console.error('Error getting pronunciation scores:', error);
+          }
+        }
+        
+        recognizerRef.current?.close();
+        recognizerRef.current = null;
+      },
+      (err) => {
+        console.error('Error:', err);
+        recognizerRef.current?.close();
+        recognizerRef.current = null;
+      }
+    );
   }, []);
 
   /**
@@ -215,7 +281,9 @@ export function ConsolePage() {
       const { trackId, offset } = trackSampleOffset;
       await client.cancelResponse(trackId, offset);
     }
-    await wavRecorder.record((data) => client.appendInputAudio(data.mono));
+    await wavRecorder.record((data) => {
+      return client.appendInputAudio(data.mono);
+    });
   };
 
   /**
@@ -394,8 +462,58 @@ export function ConsolePage() {
           24000
         );
         item.formatted.file = wavFile;
+        
+        if (item.role === 'user' && item.formatted.audio?.length) {
+          // upload to azure speech
+          const azureSpeechKey = localStorage.getItem('tmp::azure_speech_key') || '';
+          const azureSpeechRegion = 'eastus';
+          const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(azureSpeechKey, azureSpeechRegion);
+          speechConfig.speechRecognitionLanguage = "en-US";
+          const audioFile = new File([wavFile.blob], 'audio.wav', { type: 'audio/wav' });
+          const audioConfig = SpeechSDK.AudioConfig.fromWavFileInput(audioFile);
+          recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+          const pronunciationAssessmentConfig = new SpeechSDK.PronunciationAssessmentConfig(
+            "", // Empty reference text for free-form speech
+            SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
+            SpeechSDK.PronunciationAssessmentGranularity.Word
+          );
+          pronunciationAssessmentConfig.applyTo(recognizerRef.current);
+      
+          recognizerRef.current.recognizeOnceAsync(
+            (result) => {
+              if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+                // Get pronunciation assessment results
+                const pronunciationAssessmentResult = SpeechSDK.PronunciationAssessmentResult.fromResult(result);
+                
+                try {
+                  const scores = pronunciationAssessmentResult.detailResult.PronunciationAssessment;
+                  const newScores: PronunciationScores = {
+                    accuracyScore: scores?.AccuracyScore || null,
+                    fluencyScore: scores?.FluencyScore || null,
+                    completenessScore: scores?.CompletenessScore || null,
+                    pronunciationScore: scores?.PronScore || null
+                  };
+                  setPronunciationScores(prev => ({
+                    ...prev,
+                    [item.id]: newScores
+                  }));
+                } catch (error) {
+                  console.error('Error getting pronunciation scores:', error);
+                }
+              }
+              
+              recognizerRef.current?.close();
+              recognizerRef.current = null;
+            },
+            (err) => {
+              console.error('Error:', err);
+              recognizerRef.current?.close();
+              recognizerRef.current = null;
+            }
+          );
+        }
+        setItems(items);
       }
-      setItems(items);
     });
 
     setItems(client.conversation.getItems());
@@ -517,6 +635,7 @@ export function ConsolePage() {
             <div className="content-block-body" data-conversation-content>
               {!items.length && `awaiting connection...`}
               {items.map((conversationItem, i) => {
+                const scores = pronunciationScores[conversationItem.id];
                 return (
                   <div className="conversation-item" key={conversationItem.id}>
                     <div className={`speaker ${conversationItem.role || ''}`}>
@@ -569,6 +688,14 @@ export function ConsolePage() {
                           src={conversationItem.formatted.file.url}
                           controls
                         />
+                      )}
+                      {scores && (
+                        <div className="pronunciation-scores">
+                          <div>Accuracy: {scores.accuracyScore?.toFixed(1) || 'N/A'}</div>
+                          <div>Fluency: {scores.fluencyScore?.toFixed(1) || 'N/A'}</div>
+                          <div>Completeness: {scores.completenessScore?.toFixed(1) || 'N/A'}</div>
+                          <div>Pronunciation: {scores.pronunciationScore?.toFixed(1) || 'N/A'}</div>
+                        </div>
                       )}
                     </div>
                   </div>
