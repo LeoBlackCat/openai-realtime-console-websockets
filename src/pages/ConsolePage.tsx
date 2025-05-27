@@ -51,13 +51,18 @@ export function ConsolePage() {
   const openAIKey = LOCAL_RELAY_SERVER_URL
     ? ''
     : localStorage.getItem('tmp::openai_api_key') ||
-      prompt('OpenAI API Key') ||
+      prompt('Please enter your OpenAI API Key') ||
       '';
   if (openAIKey !== '') {
     localStorage.setItem('tmp::openai_api_key', openAIKey);
   }
 
-  const azureSpeechKey = localStorage.getItem('tmp::azure_speech_key') || '';
+  const azureSpeechKey = localStorage.getItem('tmp::azure_speech_key') ||
+    prompt('Please enter your Azure Speech API Key') ||
+    '';
+  if (azureSpeechKey !== '') {
+    localStorage.setItem('tmp::azure_speech_key', azureSpeechKey);
+  }
 
   /**
    * Instantiate:
@@ -561,7 +566,7 @@ export function ConsolePage() {
     <div data-component="ConsolePage">
       <div className="content-top">
         <div className="content-title">
-          <img src="/openai-logomark.svg" alt="OpenAI" />
+          <img src={`${process.env.PUBLIC_URL}/openai-logomark.svg`} alt="OpenAI" />
           <img src="https://upload.wikimedia.org/wikipedia/commons/f/fa/Microsoft_Azure.svg" alt="Azure" style={{ width: '24px', height: '24px' }} />
           <span>realtime && speech</span>
           <div className="visualization">
