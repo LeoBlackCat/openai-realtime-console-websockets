@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/openai-realtime-azure-speech/static/css/main.c456c787.css",
+    "main.js": "/openai-realtime-azure-speech/static/js/main.4a6ee358.js",
+    "static/js/453.7d6e1a4e.chunk.js": "/openai-realtime-azure-speech/static/js/453.7d6e1a4e.chunk.js",
+    "index.html": "/openai-realtime-azure-speech/index.html",
+    "main.c456c787.css.map": "/openai-realtime-azure-speech/static/css/main.c456c787.css.map",
+    "main.4a6ee358.js.map": "/openai-realtime-azure-speech/static/js/main.4a6ee358.js.map",
+    "453.7d6e1a4e.chunk.js.map": "/openai-realtime-azure-speech/static/js/453.7d6e1a4e.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.c456c787.css",
+    "static/js/main.4a6ee358.js"
+  ]
+}
